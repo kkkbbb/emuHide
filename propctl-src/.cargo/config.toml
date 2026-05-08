@@ -1,0 +1,2 @@
+[target.aarch64-linux-android]
+linker = "/home/wwb/Android/Sdk/ndk/25.0.8775105/toolchains/llvm/prebuilt/linux-x86_64/bin/aarch64-linux-android33-clang"
