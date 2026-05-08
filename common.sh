@@ -19,7 +19,6 @@ PROPCTL=$MODDIR/bin/propctl
 PATCHCTL=$MODDIR/bin/patchctl
 SERIAL_SYNC_PID_FILE=$WORK_DIR/prop-serial-sync.pid
 PROFILE_WORKER_PID_FILE=$WORK_DIR/profile-worker.pid
-SANITIZED_PROPERTY_INFO=$MODDIR/files/property_info/property_info
 EMULATOR_PROP_PATTERN="qemu|ranchu|goldfish|emulator|gfxxx"
 
 chcon_tree() {
@@ -522,11 +521,14 @@ prepare_property_area_aliases() {
   done
 }
 
-apply_sanitized_property_info() {
+sanitize_property_info() {
   local dst="/dev/__properties__/.profiles/$PROFILE/property_info"
-  [ -f "$SANITIZED_PROPERTY_INFO" ] || return 0
+  [ -x "$PATCHCTL" ] || return 0
   [ -f "$dst" ] || return 0
-  cp "$SANITIZED_PROPERTY_INFO" "$dst" 2>/dev/null || return 0
+  "$PATCHCTL" property-info "$dst" "$dst" >>"$LOG_DIR/module.log" 2>&1 || {
+    log "property_info patch failed"
+    return 0
+  }
   chown root:root "$dst" 2>/dev/null || true
   chmod 444 "$dst" 2>/dev/null || true
   chcon u:object_r:property_info:s0 "$dst" 2>/dev/null || true
@@ -545,7 +547,7 @@ create_profile_with_propctl() {
   clean_profile_emulator_string_props
   set_runtime_profile_props
   rm -f "/dev/__properties__/.profiles/$PROFILE/props.txt"
-  apply_sanitized_property_info
+  sanitize_property_info
   "$PROPCTL" repack-props "$PROFILE" >>"$LOG_DIR/propctl-profile.log" 2>&1 || true
   prepare_property_area_aliases
   rm -f "/dev/__properties__/.profiles/$PROFILE/props.txt"

@@ -47,8 +47,22 @@ const SENSOR_REPLACEMENTS: &[(&[u8], &[u8])] = &[
     (b"Goldfish Light sensor", b"TMD3719 Light Sensor"),
 ];
 
+const PROPERTY_INFO_REPLACEMENTS: &[(&[u8], &[u8])] = &[
+    (b"goldfish", b"cheetahx"),
+    (b"Goldfish", b"Cheetahx"),
+    (b"emulation", b"physicalx"),
+    (b"Emulation", b"Physicalx"),
+    (b"emulator", b"physical"),
+    (b"Emulator", b"Physical"),
+    (b"ranchu", b"gs201x"),
+    (b"Ranchu", b"Gs201x"),
+    (b"qemu", b"gs20"),
+    (b"QEMU", b"GS20"),
+    (b"gfxxx", b"gs203"),
+];
+
 fn usage() -> ! {
-    eprintln!("usage: patchctl <keymint|sensor> <source> <dest>");
+    eprintln!("usage: patchctl <keymint|sensor|property-info> <source> <dest>");
     process::exit(2);
 }
 
@@ -165,6 +179,19 @@ fn patch_sensor(src: &Path, dst: &Path) -> Result<()> {
     Ok(())
 }
 
+fn patch_property_info(src: &Path, dst: &Path) -> Result<()> {
+    let mut data = fs::read(src)?;
+    let mut total = 0;
+
+    for (from, to) in PROPERTY_INFO_REPLACEMENTS {
+        total += replace_all(&mut data, from, to)?;
+    }
+
+    write_output(dst, &data)?;
+    println!("property-info patched: replacements={}", total);
+    Ok(())
+}
+
 fn main() -> Result<()> {
     let mut args = env::args_os();
     let _program = args.next();
@@ -178,6 +205,7 @@ fn main() -> Result<()> {
     match mode.to_string_lossy().as_ref() {
         "keymint" => patch_keymint(Path::new(&src), Path::new(&dst)),
         "sensor" => patch_sensor(Path::new(&src), Path::new(&dst)),
+        "property-info" => patch_property_info(Path::new(&src), Path::new(&dst)),
         _ => usage(),
     }
 }
