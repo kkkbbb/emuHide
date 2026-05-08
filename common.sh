@@ -19,8 +19,6 @@ PROPCTL=$MODDIR/bin/propctl
 PATCHCTL=$MODDIR/bin/patchctl
 SERIAL_SYNC_PID_FILE=$WORK_DIR/prop-serial-sync.pid
 PROFILE_WORKER_PID_FILE=$WORK_DIR/profile-worker.pid
-ORIGINAL_PROPS_FILE=$WORK_DIR/original_props
-ORIGINAL_PROP_ABSENT=__HUNTER_PROP_ABSENT__
 EMULATOR_PROP_PATTERN="qemu|ranchu|goldfish|emulator|gfxxx"
 
 chcon_tree() {
@@ -46,110 +44,6 @@ log() {
 run_cmd() {
   log "+ $*"
   "$@" >>"$LOG_DIR/module.log" 2>&1
-}
-
-resetprop_set() {
-  if [ -x /data/adb/ksu/bin/resetprop ]; then
-    /data/adb/ksu/bin/resetprop -n "$1" "$2" >>"$LOG_DIR/module.log" 2>&1
-  elif command -v resetprop >/dev/null 2>&1; then
-    resetprop -n "$1" "$2" >>"$LOG_DIR/module.log" 2>&1
-  else
-    setprop "$1" "$2"
-  fi
-}
-
-resetprop_del() {
-  if [ -x /data/adb/ksu/bin/resetprop ]; then
-    /data/adb/ksu/bin/resetprop -d "$1" >>"$LOG_DIR/module.log" 2>&1 || true
-  elif command -v resetprop >/dev/null 2>&1; then
-    resetprop -d "$1" >>"$LOG_DIR/module.log" 2>&1 || true
-  else
-    setprop "$1" ""
-  fi
-}
-
-managed_global_props() {
-  cat <<'EOF'
-ro.boot.verifiedbootstate
-ro.boot.flash.locked
-ro.boot.vbmeta.device_state
-ro.boot.veritymode
-ro.boot.vbmeta.digest
-ro.boot.vbmeta.hash_alg
-ro.boot.vbmeta.size
-vendor.qemu.sf.fake_camera
-ro.boot.hardware
-ro.hardware
-ro.hardware.egl
-ro.hardware.gralloc
-ro.hardware.vulkan
-ro.hardware.power
-ro.boot.hardware.vulkan
-ro.product.model
-ro.product.manufacturer
-ro.product.brand
-ro.product.name
-ro.product.device
-ro.product.board
-ro.build.product
-ro.build.characteristics
-ro.build.type
-ro.build.tags
-ro.build.fingerprint
-ro.product.build.fingerprint
-ro.vendor.build.fingerprint
-ro.system.build.fingerprint
-ro.odm.build.fingerprint
-ro.serialno
-ro.boot.serialno
-ro.soc.model
-ro.kernel.qemu
-ro.boot.qemu
-qemu.sf.lcd_density
-ro.boot.qemu.avd_name
-EOF
-}
-
-prop_exists() {
-  local key="$1"
-  getprop 2>/dev/null | sed -n 's/^\[\([^]]*\)\]: \[.*\]$/\1/p' | grep -Fxq "$key"
-}
-
-save_original_props() {
-  local key value tmp
-  [ -f "$ORIGINAL_PROPS_FILE" ] && return 0
-  mkdir -p "$WORK_DIR"
-  tmp="$ORIGINAL_PROPS_FILE.tmp"
-  : >"$tmp" || return 0
-  managed_global_props |
-    while IFS= read -r key; do
-      [ -n "$key" ] || continue
-      if prop_exists "$key"; then
-        value=$(getprop "$key" 2>/dev/null)
-        printf '%s=%s\n' "$key" "$value" >>"$tmp"
-      else
-        printf '%s=%s\n' "$key" "$ORIGINAL_PROP_ABSENT" >>"$tmp"
-      fi
-    done
-  mv "$tmp" "$ORIGINAL_PROPS_FILE" 2>/dev/null || true
-  chmod 600 "$ORIGINAL_PROPS_FILE" 2>/dev/null || true
-}
-
-restore_original_props() {
-  local line key value
-  [ -f "$ORIGINAL_PROPS_FILE" ] || return 1
-  while IFS= read -r line; do
-    [ -n "$line" ] || continue
-    key=${line%%=*}
-    value=${line#*=}
-    [ -n "$key" ] || continue
-    if [ "$value" = "$ORIGINAL_PROP_ABSENT" ]; then
-      resetprop_del "$key"
-    else
-      resetprop_set "$key" "$value"
-    fi
-  done <"$ORIGINAL_PROPS_FILE"
-  return 0
 }
 
 unmount_path() {
@@ -217,52 +111,6 @@ bind_dir() {
     return 1
   }
   bind_path_global "$src" "$dst"
-}
-
-set_verified_boot_props() {
-  resetprop_set ro.boot.verifiedbootstate green
-  resetprop_set ro.boot.flash.locked 1
-  resetprop_set ro.boot.vbmeta.device_state locked
-  resetprop_set ro.boot.veritymode enforcing
-  resetprop_set ro.boot.vbmeta.digest 60c39051c6cfdb18db2fd0ad8068b41e55a0a96e16bffe5156c0ee61a22b00bf
-  resetprop_set ro.boot.vbmeta.hash_alg sha256
-  resetprop_set ro.boot.vbmeta.size 6656
-}
-
-set_camera_props() {
-  resetprop_set vendor.qemu.sf.fake_camera both
-}
-
-set_global_device_props() {
-  resetprop_set ro.boot.hardware gs201
-  resetprop_set ro.hardware gs201
-  resetprop_set ro.hardware.egl mali
-  resetprop_set ro.hardware.gralloc gs201
-  resetprop_set ro.hardware.vulkan mali
-  resetprop_set ro.hardware.power gs201
-  resetprop_set ro.boot.hardware.vulkan mali
-  resetprop_set ro.product.model "Pixel 7 Pro"
-  resetprop_set ro.product.manufacturer Google
-  resetprop_set ro.product.brand google
-  resetprop_set ro.product.name cheetah
-  resetprop_set ro.product.device cheetah
-  resetprop_set ro.product.board cheetah
-  resetprop_set ro.build.product cheetah
-  resetprop_set ro.build.characteristics nosdcard
-  resetprop_set ro.build.type user
-  resetprop_set ro.build.tags release-keys
-  resetprop_set ro.build.fingerprint "google/cheetah/cheetah:14/AP1A.240505.005/11677807:user/release-keys"
-  resetprop_set ro.product.build.fingerprint "google/cheetah/cheetah:14/AP1A.240505.005/11677807:user/release-keys"
-  resetprop_set ro.vendor.build.fingerprint "google/cheetah/cheetah:14/AP1A.240505.005/11677807:user/release-keys"
-  resetprop_set ro.system.build.fingerprint "google/cheetah/cheetah:14/AP1A.240505.005/11677807:user/release-keys"
-  resetprop_set ro.odm.build.fingerprint "google/cheetah/cheetah:14/AP1A.240505.005/11677807:user/release-keys"
-  resetprop_set ro.serialno 3A021JEHN02756
-  resetprop_set ro.boot.serialno 3A021JEHN02756
-  resetprop_set ro.soc.model "Tensor G2"
-  resetprop_set ro.kernel.qemu 0
-  resetprop_set ro.boot.qemu 0
-  resetprop_del qemu.sf.lcd_density
-  resetprop_del ro.boot.qemu.avd_name
 }
 
 setup_bootconfig() {
@@ -749,11 +597,9 @@ start_runtime_profile_worker() {
       i=$((i + 1))
     done
     sleep 5
-    set_verified_boot_props
-    set_camera_props
-    set_global_device_props
     ensure_profile
     apply_global_property_profile || log "global property mount failed"
+    restart_runtime_services
     am force-stop "$HUNTER_PACKAGE" 2>/dev/null || true
     sleep 3
     write_status
@@ -786,11 +632,7 @@ main_post_fs_data() {
   mkdir -p "$WORK_DIR" "$LOG_DIR"
   log "post-fs-data start"
   ensure_module_permissions
-  save_original_props
   load_kpms
-  set_verified_boot_props
-  set_camera_props
-  set_global_device_props
   setup_vendor_aliases
   setup_non_so_aliases
   setup_bootconfig
@@ -803,11 +645,7 @@ main_service() {
   mkdir -p "$WORK_DIR" "$LOG_DIR"
   log "service start"
   ensure_module_permissions
-  save_original_props
   load_kpms
-  set_verified_boot_props
-  set_camera_props
-  set_global_device_props
   setup_bootconfig
   setup_keymint
   setup_sensor
@@ -833,6 +671,5 @@ main_restore_runtime() {
   rm -rf "/dev/__properties__/.profiles/$PROFILE" 2>/dev/null || true
   restore_non_so_aliases
   unload_kpms
-  restore_original_props || resetprop_set vendor.qemu.sf.fake_camera front
   rm -rf "$WORK_DIR"
 }
