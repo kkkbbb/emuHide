@@ -200,14 +200,14 @@ pub fn print_banner() {
     stdout_line(
         &format!(
             "\n {BOLD}{CYAN}╔══════════════════════════════════════╗{RESET}\n \
-             {BOLD}{CYAN}║{RESET}  {BOLD}      rustFrida v{version:<17} {RESET}{BOLD}{CYAN}║{RESET}\n \
-             {BOLD}{CYAN}║{RESET}  {DIM}  ARM64 Dynamic Instrumentation    {RESET}{BOLD}{CYAN}║{RESET}\n \
+             {BOLD}{CYAN}║{RESET}  {BOLD}        propctl v{version:<17} {RESET}{BOLD}{CYAN}║{RESET}\n \
+             {BOLD}{CYAN}║{RESET}  {DIM}    Android property profile tool  {RESET}{BOLD}{CYAN}║{RESET}\n \
              {BOLD}{CYAN}╚══════════════════════════════════════╝{RESET}\n"
         ),
         &format!(
             "\n ╔══════════════════════════════════════╗\n \
-             ║        rustFrida v{version:<17} ║\n \
-             ║    ARM64 Dynamic Instrumentation    ║\n \
+             ║          propctl v{version:<17} ║\n \
+             ║    Android property profile tool    ║\n \
              ╚══════════════════════════════════════╝\n"
         ),
     );

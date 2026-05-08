@@ -1,11 +1,11 @@
 #![cfg(all(target_os = "android", target_arch = "aarch64"))]
 
-//! 属性覆盖伪装模块：dump 本机属性 → 定制修改 → zymbiote 自动 mount+remap
+//! Android property profile tool used by the module runtime.
 //!
 //! 工作流程:
-//! 1. `--dump-props <profile>`: 复制 /dev/__properties__/ 到 profile 目录 + getprop 输出
-//! 2. 用户编辑 profile 目录下的 override.prop (key=value 格式)
-//! 3. `--spawn <pkg> --profile <profile>`: 预处理(patch 文件) → zymbiote 在 fork 后自动 mount+remap
+//! 1. `dump-props <profile>`: 复制 /dev/__properties__/ 到 profile 目录
+//! 2. `set-prop <profile> <key=value>` / `del-prop <profile> <key>` 修改 profile
+//! 3. `repack-props <profile>` 清理被删除属性留下的字符串痕迹
 
 use std::collections::HashMap;
 use std::ffi::c_void;
@@ -428,29 +428,6 @@ fn rebuild_prop_area_preserving_offsets(original: &[u8], alive: &[(String, Strin
     let max_pi = reserved.iter().map(|&(o, s)| o + s).max().unwrap_or(0);
     data[0..4].copy_from_slice(&(alloc_pos.max(max_pi) as u32).to_le_bytes());
     data
-}
-
-/// 激活属性 profile：写 .active 文件，返回 profile 目录路径
-///
-/// 在 spawn_and_inject 之前调用。zymbiote 在 fork 的子进程中
-/// 读取 .active 自动 mount bind + remap。
-pub(crate) fn prep_prop_profile(profile_name: &str) -> Result<String, String> {
-    let profile_dir = format!("{}/{}", PROP_PROFILES_DIR, profile_name);
-
-    if !std::path::Path::new(&profile_dir).exists() {
-        return Err(format!(
-            "Profile '{}' 不存在，先运行: propctl dump-props {}",
-            profile_name, profile_name
-        ));
-    }
-
-    // 写 .active 文件：zymbiote 读取此文件获取 profile 目录路径
-    let active_path = format!("{}/.active", PROP_PROFILES_DIR);
-    std::fs::write(&active_path, format!("{}\n", profile_dir))
-        .map_err(|e| format!("写入 {} 失败: {}", active_path, e))?;
-
-    log_info!("属性 profile '{}' 已激活", profile_name);
-    Ok(profile_dir)
 }
 
 // ─── 内部实现 ────────────────────────────────────────────────────────────────

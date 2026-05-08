@@ -10,8 +10,8 @@ KEYMINT_TARGET=/vendor/lib64/libpuresoftkeymasterdevice.so
 KEYMINT_FILE=$MODDIR/files/keymint/vendor_libpuresoftkeymasterdevice.so
 SENSOR_TARGET=/vendor/lib64/hw/android.hardware.sensors@2.1-impl.ranchu.so
 SENSOR_FILE=$MODDIR/files/sensor/android.hardware.sensors@2.1-impl.ranchu.so
-ALIAS_ROOT=$WORK_DIR/rf_vendor_alias
-PRODUCT_OVERLAY_ALIAS_ROOT=$WORK_DIR/rf_product_overlay_alias
+ALIAS_ROOT=$WORK_DIR/vendor_alias
+PRODUCT_OVERLAY_ALIAS_ROOT=$WORK_DIR/product_overlay_alias
 DEV_ORIGINAL=/dev/goldfish_address_space
 DEV_ALIAS=/dev/mali_address_space
 BLOCKED_PROP_AREA=$WORK_DIR/blocked_property_area
@@ -638,7 +638,7 @@ write_status() {
     echo "mounts:"
     echo "property_mount_count=$(mount | grep -c '/dev/__properties__/')"
     mount | grep -E ' /dev/__properties__ ' || true
-    mount | grep -E '/proc/bootconfig|/vendor/lib64|/product/overlay|rf_vendor|rf_product|rf_sensor_hal|libpuresoftkeymasterdevice' || true
+    mount | grep -E '/proc/bootconfig|/vendor/lib64|/product/overlay|vendor_alias|product_overlay_alias|libpuresoftkeymasterdevice' || true
   } >"$LOG_DIR/status.log" 2>&1
 }
 
