@@ -14,3 +14,7 @@ cargo build \
 install -m 0755 \
   "$CARGO_TARGET_DIR/aarch64-linux-android/release/propctl" \
   "$SCRIPT_DIR/bin/propctl"
+
+install -m 0755 \
+  "$CARGO_TARGET_DIR/aarch64-linux-android/release/patchctl" \
+  "$SCRIPT_DIR/bin/patchctl"

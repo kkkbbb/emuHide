@@ -3,5 +3,13 @@ name = "propctl"
 version = "0.1.0"
 edition = "2021"
 
+[[bin]]
+name = "propctl"
+path = "src/main.rs"
+
+[[bin]]
+name = "patchctl"
+path = "src/bin/patchctl.rs"
+
 [dependencies]
 libc = "1.0.0-alpha.1"

@@ -7,15 +7,16 @@ PROFILE=hunter_pixel
 HUNTER_PACKAGE=com.zhenxi.hunter
 BOOTCONFIG_FILE=$WORK_DIR/fake_bootconfig
 KEYMINT_TARGET=/vendor/lib64/libpuresoftkeymasterdevice.so
-KEYMINT_FILE=$MODDIR/files/keymint/vendor_libpuresoftkeymasterdevice.so
+KEYMINT_PATCH_FILE=$WORK_DIR/keymint/vendor_libpuresoftkeymasterdevice.so
 SENSOR_TARGET=/vendor/lib64/hw/android.hardware.sensors@2.1-impl.ranchu.so
-SENSOR_FILE=$MODDIR/files/sensor/android.hardware.sensors@2.1-impl.ranchu.so
+SENSOR_PATCH_FILE=$WORK_DIR/sensor/android.hardware.sensors@2.1-impl.ranchu.so
 ALIAS_ROOT=$WORK_DIR/vendor_alias
 PRODUCT_OVERLAY_ALIAS_ROOT=$WORK_DIR/product_overlay_alias
 DEV_ORIGINAL=/dev/goldfish_address_space
 DEV_ALIAS=/dev/mali_address_space
 BLOCKED_PROP_AREA=$WORK_DIR/blocked_property_area
 PROPCTL=$MODDIR/bin/propctl
+PATCHCTL=$MODDIR/bin/patchctl
 SERIAL_SYNC_PID_FILE=$WORK_DIR/prop-serial-sync.pid
 PROFILE_WORKER_PID_FILE=$WORK_DIR/profile-worker.pid
 SANITIZED_PROPERTY_INFO=$MODDIR/files/property_info/property_info
@@ -32,9 +33,8 @@ chcon_tree() {
 ensure_module_permissions() {
   chmod 755 "$MODDIR/post-fs-data.sh" "$MODDIR/service.sh" "$MODDIR/uninstall.sh" 2>/dev/null || true
   [ -f "$PROPCTL" ] && chmod 755 "$PROPCTL" 2>/dev/null || true
+  [ -f "$PATCHCTL" ] && chmod 755 "$PATCHCTL" 2>/dev/null || true
   chcon_tree u:object_r:system_file:s0 "$MODDIR"
-  [ -f "$KEYMINT_FILE" ] && chcon u:object_r:vendor_file:s0 "$KEYMINT_FILE" 2>/dev/null || true
-  [ -f "$SENSOR_FILE" ] && chcon u:object_r:same_process_hal_file:s0 "$SENSOR_FILE" 2>/dev/null || true
 }
 
 log() {
@@ -209,24 +209,59 @@ EOF
 }
 
 setup_keymint() {
-  bind_file "$KEYMINT_FILE" "$KEYMINT_TARGET" || true
+  [ -x "$PATCHCTL" ] || {
+    log "missing patchctl, skipping KeyMint patch"
+    return 0
+  }
+  [ -f "$KEYMINT_TARGET" ] || {
+    log "missing KeyMint source: $KEYMINT_TARGET"
+    return 0
+  }
+  unmount_path "$KEYMINT_TARGET"
+  mkdir -p "${KEYMINT_PATCH_FILE%/*}"
+  if "$PATCHCTL" keymint "$KEYMINT_TARGET" "$KEYMINT_PATCH_FILE" >>"$LOG_DIR/module.log" 2>&1; then
+    chown root:root "$KEYMINT_PATCH_FILE" 2>/dev/null || true
+    chmod 644 "$KEYMINT_PATCH_FILE" 2>/dev/null || true
+    chcon u:object_r:vendor_file:s0 "$KEYMINT_PATCH_FILE" 2>/dev/null || true
+    bind_file "$KEYMINT_PATCH_FILE" "$KEYMINT_TARGET" || true
+  else
+    log "KeyMint patch failed"
+  fi
   setprop ctl.restart vendor.keymint-default 2>/dev/null || true
   setprop ctl.restart keystore2 2>/dev/null || true
 }
 
 setup_sensor() {
-  bind_file "$SENSOR_FILE" "$SENSOR_TARGET" || true
+  [ -x "$PATCHCTL" ] || {
+    log "missing patchctl, skipping sensor patch"
+    return 0
+  }
+  [ -f "$SENSOR_TARGET" ] || {
+    log "missing sensor source: $SENSOR_TARGET"
+    return 0
+  }
+  unmount_path "$SENSOR_TARGET"
+  mkdir -p "${SENSOR_PATCH_FILE%/*}"
+  if "$PATCHCTL" sensor "$SENSOR_TARGET" "$SENSOR_PATCH_FILE" >>"$LOG_DIR/module.log" 2>&1; then
+    chown root:root "$SENSOR_PATCH_FILE" 2>/dev/null || true
+    chmod 644 "$SENSOR_PATCH_FILE" 2>/dev/null || true
+    chcon u:object_r:same_process_hal_file:s0 "$SENSOR_PATCH_FILE" 2>/dev/null || true
+    bind_file "$SENSOR_PATCH_FILE" "$SENSOR_TARGET" || true
+  else
+    log "sensor patch failed"
+  fi
 }
 
 restore_runtime_mounts() {
   restore_property_profile_mounts
   unmount_path "$KEYMINT_TARGET"
+  unmount_path "$SENSOR_TARGET"
+  unmount_path "$ALIAS_ROOT/hw/${SENSOR_TARGET##*/}"
   unmount_path /proc/bootconfig
   unmount_path /vendor/lib64/egl
   unmount_path /vendor/lib64/hw
   unmount_path /vendor/lib64
   unmount_path /product/overlay
-  unmount_path "$SENSOR_TARGET"
 }
 
 setup_vendor_aliases() {
