@@ -321,7 +321,6 @@ unload_kpms() {
   [ -x /data/adb/ksud ] || return 0
   /data/adb/ksud kpm control anti-detect "hide-path clear" >/dev/null 2>>"$LOG_DIR/module.log" || true
   /data/adb/ksud kpm unload anti-detect >>"$LOG_DIR/module.log" 2>&1 || true
-  /data/adb/ksud kpm unload kpm-hide-maps >>"$LOG_DIR/module.log" 2>&1 || true
 }
 
 anti_detect_control() {
