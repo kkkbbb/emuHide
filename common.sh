@@ -1,7 +1,7 @@
 #!/system/bin/sh
 
 MODDIR=${MODDIR:-${0%/*}}
-WORK_DIR=/data/adb/hunter_env_stealth
+WORK_DIR=/data/adb/emuHide
 LOG_DIR=$WORK_DIR/log
 PROFILE=hunter_pixel
 HUNTER_PACKAGE=com.zhenxi.hunter

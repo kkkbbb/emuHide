@@ -1,6 +1,6 @@
-id=hunter_env_stealth
-name=Hunter Environment Stealth
+id=emuHide
+name=emuHide
 version=1.0
 versionCode=1
 author=wwb
-description=Boot-time environment preparation for the verified Hunter test profile on SukiSU/KernelSU.
+description=Boot-time emulator environment hiding module for SukiSU/KernelSU.
