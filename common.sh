@@ -10,6 +10,8 @@ KEYMINT_TARGET=/vendor/lib64/libpuresoftkeymasterdevice.so
 KEYMINT_PATCH_FILE=$WORK_DIR/keymint/vendor_libpuresoftkeymasterdevice.so
 SENSOR_TARGET=/vendor/lib64/hw/android.hardware.sensors@2.1-impl.ranchu.so
 SENSOR_PATCH_FILE=$WORK_DIR/sensor/android.hardware.sensors@2.1-impl.ranchu.so
+CAMERA_LIB_TARGET=/vendor/lib64/libgooglecamerahwl_impl.so
+CAMERA_LIB_PATCH_FILE=$WORK_DIR/camera/libgooglecamerahwl_impl.so
 ALIAS_ROOT=$WORK_DIR/vendor_alias
 PRODUCT_OVERLAY_ALIAS_ROOT=$WORK_DIR/product_overlay_alias
 DEV_ORIGINAL=/dev/goldfish_address_space
@@ -185,10 +187,32 @@ setup_sensor() {
   fi
 }
 
+setup_camera_prop_key() {
+  [ -x "$PATCHCTL" ] || {
+    log "missing patchctl, skipping camera prop key patch"
+    return 0
+  }
+  [ -f "$CAMERA_LIB_TARGET" ] || {
+    log "missing camera HAL source: $CAMERA_LIB_TARGET"
+    return 0
+  }
+  unmount_path "$CAMERA_LIB_TARGET"
+  mkdir -p "${CAMERA_LIB_PATCH_FILE%/*}"
+  if "$PATCHCTL" camera-prop "$CAMERA_LIB_TARGET" "$CAMERA_LIB_PATCH_FILE" >>"$LOG_DIR/module.log" 2>&1; then
+    chown root:root "$CAMERA_LIB_PATCH_FILE" 2>/dev/null || true
+    chmod 644 "$CAMERA_LIB_PATCH_FILE" 2>/dev/null || true
+    chcon u:object_r:same_process_hal_file:s0 "$CAMERA_LIB_PATCH_FILE" 2>/dev/null || true
+    bind_file "$CAMERA_LIB_PATCH_FILE" "$CAMERA_LIB_TARGET" || true
+  else
+    log "camera prop key patch failed"
+  fi
+}
+
 restore_runtime_mounts() {
   restore_property_profile_mounts
   unmount_path "$KEYMINT_TARGET"
   unmount_path "$SENSOR_TARGET"
+  unmount_path "$CAMERA_LIB_TARGET"
   unmount_path "$ALIAS_ROOT/hw/${SENSOR_TARGET##*/}"
   unmount_path /proc/bootconfig
   unmount_path /vendor/lib64/egl
@@ -338,9 +362,6 @@ profile_set_prop() {
 }
 
 profile_del_prop() {
-  case "$1" in
-    vendor.qemu.sf.fake_camera) return 0 ;;
-  esac
   "$PROPCTL" del-prop "$PROFILE" "$1" >>"$LOG_DIR/propctl-profile.log" 2>&1 || true
 }
 
@@ -430,7 +451,7 @@ ro.boot.vbmeta.device_state=locked
 ro.boot.veritymode=enforcing
 ro.boot.hardware.vulkan=mali
 ro.soc.model=Tensor G2
-vendor.qemu.sf.fake_camera=both
+vendor.camera.fake_camera=both
 EOF
 }
 
@@ -496,9 +517,11 @@ create_profile_with_propctl() {
   "$PROPCTL" dump-props "$PROFILE" >>"$LOG_DIR/propctl-profile.log" 2>&1 || return 1
   clean_runtime_emulator_props
   clean_profile_emulator_string_props
-  set_runtime_profile_props
   rm -f "/dev/__properties__/.profiles/$PROFILE/props.txt"
   sanitize_property_info
+  profile_del_prop vendor.gs20.sf.fake_camera
+  profile_del_prop vendor.qemu.sf.fake_camera
+  set_runtime_profile_props
   "$PROPCTL" repack-props "$PROFILE" >>"$LOG_DIR/propctl-profile.log" 2>&1 || true
   prepare_property_area_aliases
   rm -f "/dev/__properties__/.profiles/$PROFILE/props.txt"
@@ -617,7 +640,7 @@ restart_runtime_services() {
 
 write_status() {
   {
-    echo "fake_camera=$(getprop vendor.qemu.sf.fake_camera)"
+    echo "fake_camera=$(getprop vendor.camera.fake_camera)"
     dumpsys media.camera 2>/dev/null | sed -n 's/^Number of normal camera devices: /camera_count=/p; s/^    Device /camera_device /p' | head -8
     echo "kpms:"
     [ -x /data/adb/ksud ] && /data/adb/ksud kpm list 2>/dev/null || true
@@ -638,6 +661,7 @@ main_post_fs_data() {
   setup_bootconfig
   setup_keymint
   setup_sensor
+  setup_camera_prop_key
   log "post-fs-data done"
 }
 
@@ -649,6 +673,7 @@ main_service() {
   setup_bootconfig
   setup_keymint
   setup_sensor
+  setup_camera_prop_key
   restart_runtime_services
   start_runtime_profile_worker
   log "service done"

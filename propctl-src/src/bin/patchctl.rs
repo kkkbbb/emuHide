@@ -16,6 +16,8 @@ const KEYMINT_ZERO_ROOT_HEX: &[u8] =
     b"0000000000000000000000000000000000000000000000000000000000000000";
 const KEYMINT_ROOT_HEX: &[u8] =
     b"60c39051c6cfdb18db2fd0ad8068b41e55a0a96e16bffe5156c0ee61a22b00bf";
+const CAMERA_PROP_ORIG: &[u8] = b"vendor.qemu.sf.fake_camera";
+const CAMERA_PROP_PATCH: &[u8] = b"vendor.camera.fake_camera";
 
 const SENSOR_REPLACEMENTS: &[(&[u8], &[u8])] = &[
     (
@@ -62,7 +64,7 @@ const PROPERTY_INFO_REPLACEMENTS: &[(&[u8], &[u8])] = &[
 ];
 
 fn usage() -> ! {
-    eprintln!("usage: patchctl <keymint|sensor|property-info> <source> <dest>");
+    eprintln!("usage: patchctl <keymint|sensor|camera-prop|property-info> <source> <dest>");
     process::exit(2);
 }
 
@@ -179,6 +181,18 @@ fn patch_sensor(src: &Path, dst: &Path) -> Result<()> {
     Ok(())
 }
 
+fn patch_camera_prop(src: &Path, dst: &Path) -> Result<()> {
+    let mut data = fs::read(src)?;
+    let replacements = replace_all(&mut data, CAMERA_PROP_ORIG, CAMERA_PROP_PATCH)?;
+    if replacements == 0 && !contains(&data, CAMERA_PROP_PATCH) {
+        return Err("camera fake-camera property key was not found".into());
+    }
+
+    write_output(dst, &data)?;
+    println!("camera-prop patched: replacements={}", replacements);
+    Ok(())
+}
+
 fn patch_property_info(src: &Path, dst: &Path) -> Result<()> {
     let mut data = fs::read(src)?;
     let mut total = 0;
@@ -205,6 +219,7 @@ fn main() -> Result<()> {
     match mode.to_string_lossy().as_ref() {
         "keymint" => patch_keymint(Path::new(&src), Path::new(&dst)),
         "sensor" => patch_sensor(Path::new(&src), Path::new(&dst)),
+        "camera-prop" => patch_camera_prop(Path::new(&src), Path::new(&dst)),
         "property-info" => patch_property_info(Path::new(&src), Path::new(&dst)),
         _ => usage(),
     }
