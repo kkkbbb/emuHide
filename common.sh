@@ -636,6 +636,19 @@ restart_runtime_services() {
   setprop ctl.restart keystore2 2>/dev/null || true
   setprop ctl.restart vendor.camera-provider-2-7-google 2>/dev/null || true
   setprop ctl.restart cameraserver 2>/dev/null || true
+  restart_sensor_services
+}
+
+restart_sensor_services() {
+  local old new
+  old=$(pidof android.hardware.sensors-service.multihal 2>/dev/null || true)
+  setprop ctl.interface_restart android.hardware.sensors@2.1::ISensors/default 2>/dev/null || true
+  sleep 2
+  new=$(pidof android.hardware.sensors-service.multihal 2>/dev/null || true)
+  if [ -n "$old" ] && [ "$old" = "$new" ]; then
+    kill -9 "$old" 2>/dev/null || true
+    sleep 3
+  fi
 }
 
 write_status() {
