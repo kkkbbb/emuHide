@@ -19,6 +19,8 @@ PROPCTL=$MODDIR/bin/propctl
 PATCHCTL=$MODDIR/bin/patchctl
 SERIAL_SYNC_PID_FILE=$WORK_DIR/prop-serial-sync.pid
 PROFILE_WORKER_PID_FILE=$WORK_DIR/profile-worker.pid
+ORIGINAL_PROPS_FILE=$WORK_DIR/original_props
+ORIGINAL_PROP_ABSENT=__HUNTER_PROP_ABSENT__
 EMULATOR_PROP_PATTERN="qemu|ranchu|goldfish|emulator|gfxxx"
 
 chcon_tree() {
@@ -64,6 +66,90 @@ resetprop_del() {
   else
     setprop "$1" ""
   fi
+}
+
+managed_global_props() {
+  cat <<'EOF'
+ro.boot.verifiedbootstate
+ro.boot.flash.locked
+ro.boot.vbmeta.device_state
+ro.boot.veritymode
+ro.boot.vbmeta.digest
+ro.boot.vbmeta.hash_alg
+ro.boot.vbmeta.size
+vendor.qemu.sf.fake_camera
+ro.boot.hardware
+ro.hardware
+ro.hardware.egl
+ro.hardware.gralloc
+ro.hardware.vulkan
+ro.hardware.power
+ro.boot.hardware.vulkan
+ro.product.model
+ro.product.manufacturer
+ro.product.brand
+ro.product.name
+ro.product.device
+ro.product.board
+ro.build.product
+ro.build.characteristics
+ro.build.type
+ro.build.tags
+ro.build.fingerprint
+ro.product.build.fingerprint
+ro.vendor.build.fingerprint
+ro.system.build.fingerprint
+ro.odm.build.fingerprint
+ro.serialno
+ro.boot.serialno
+ro.soc.model
+ro.kernel.qemu
+ro.boot.qemu
+qemu.sf.lcd_density
+ro.boot.qemu.avd_name
+EOF
+}
+
+prop_exists() {
+  local key="$1"
+  getprop 2>/dev/null | sed -n 's/^\[\([^]]*\)\]: \[.*\]$/\1/p' | grep -Fxq "$key"
+}
+
+save_original_props() {
+  local key value tmp
+  [ -f "$ORIGINAL_PROPS_FILE" ] && return 0
+  mkdir -p "$WORK_DIR"
+  tmp="$ORIGINAL_PROPS_FILE.tmp"
+  : >"$tmp" || return 0
+  managed_global_props |
+    while IFS= read -r key; do
+      [ -n "$key" ] || continue
+      if prop_exists "$key"; then
+        value=$(getprop "$key" 2>/dev/null)
+        printf '%s=%s\n' "$key" "$value" >>"$tmp"
+      else
+        printf '%s=%s\n' "$key" "$ORIGINAL_PROP_ABSENT" >>"$tmp"
+      fi
+    done
+  mv "$tmp" "$ORIGINAL_PROPS_FILE" 2>/dev/null || true
+  chmod 600 "$ORIGINAL_PROPS_FILE" 2>/dev/null || true
+}
+
+restore_original_props() {
+  local line key value
+  [ -f "$ORIGINAL_PROPS_FILE" ] || return 1
+  while IFS= read -r line; do
+    [ -n "$line" ] || continue
+    key=${line%%=*}
+    value=${line#*=}
+    [ -n "$key" ] || continue
+    if [ "$value" = "$ORIGINAL_PROP_ABSENT" ]; then
+      resetprop_del "$key"
+    else
+      resetprop_set "$key" "$value"
+    fi
+  done <"$ORIGINAL_PROPS_FILE"
+  return 0
 }
 
 unmount_path() {
@@ -339,6 +425,16 @@ setup_non_so_aliases() {
   fi
 }
 
+restore_non_so_aliases() {
+  if [ -L "$DEV_ORIGINAL" ] && [ "$(readlink "$DEV_ORIGINAL" 2>/dev/null)" = "$DEV_ALIAS" ] && [ -e "$DEV_ALIAS" ]; then
+    rm -f "$DEV_ORIGINAL"
+    mv "$DEV_ALIAS" "$DEV_ORIGINAL" 2>/dev/null || true
+    chown system:system "$DEV_ORIGINAL" 2>/dev/null || true
+    chmod 666 "$DEV_ORIGINAL" 2>/dev/null || true
+    chcon u:object_r:qemu_device:s0 "$DEV_ORIGINAL" 2>/dev/null || true
+  fi
+}
+
 load_kpms() {
   [ -x /data/adb/ksud ] || return 0
   for module in "$MODDIR"/kpm/*.kpm; do
@@ -347,6 +443,13 @@ load_kpms() {
     /data/adb/ksud kpm list 2>/dev/null | grep -qx "$name" && continue
     /data/adb/ksud kpm load "$module" >>"$LOG_DIR/module.log" 2>&1 || true
   done
+}
+
+unload_kpms() {
+  [ -x /data/adb/ksud ] || return 0
+  /data/adb/ksud kpm control anti-detect "hide-path clear" >/dev/null 2>>"$LOG_DIR/module.log" || true
+  /data/adb/ksud kpm unload anti-detect >>"$LOG_DIR/module.log" 2>&1 || true
+  /data/adb/ksud kpm unload kpm-hide-maps >>"$LOG_DIR/module.log" 2>&1 || true
 }
 
 anti_detect_control() {
@@ -683,6 +786,7 @@ main_post_fs_data() {
   mkdir -p "$WORK_DIR" "$LOG_DIR"
   log "post-fs-data start"
   ensure_module_permissions
+  save_original_props
   load_kpms
   set_verified_boot_props
   set_camera_props
@@ -699,6 +803,7 @@ main_service() {
   mkdir -p "$WORK_DIR" "$LOG_DIR"
   log "service start"
   ensure_module_permissions
+  save_original_props
   load_kpms
   set_verified_boot_props
   set_camera_props
@@ -725,6 +830,9 @@ main_restore_runtime() {
     rm -f "$PROFILE_WORKER_PID_FILE"
   fi
   restore_runtime_mounts
-  resetprop_set vendor.qemu.sf.fake_camera front
+  rm -rf "/dev/__properties__/.profiles/$PROFILE" 2>/dev/null || true
+  restore_non_so_aliases
+  unload_kpms
+  restore_original_props || resetprop_set vendor.qemu.sf.fake_camera front
   rm -rf "$WORK_DIR"
 }
