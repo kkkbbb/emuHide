@@ -19,9 +19,12 @@ DEV_ALIAS=/dev/mali_address_space
 BLOCKED_PROP_AREA=$WORK_DIR/blocked_property_area
 PROPCTL=$MODDIR/bin/propctl
 PATCHCTL=$MODDIR/bin/patchctl
+SYSTEM_SERVER_ORIGINAL_PROPS_FILE=$MODDIR/system-server-original-props.env
 SERIAL_SYNC_PID_FILE=$WORK_DIR/prop-serial-sync.pid
 PROFILE_WORKER_PID_FILE=$WORK_DIR/profile-worker.pid
+ZYGOTE_PROFILE_WORKER_PID_FILE=$WORK_DIR/zygote-profile-worker.pid
 EMULATOR_PROP_PATTERN="qemu|ranchu|goldfish|emulator|gfxxx"
+ENABLE_KEYMINT_PATCH=${ENABLE_KEYMINT_PATCH:-0}
 
 chcon_tree() {
   local context="$1"
@@ -35,6 +38,7 @@ ensure_module_permissions() {
   chmod 755 "$MODDIR/post-fs-data.sh" "$MODDIR/service.sh" "$MODDIR/uninstall.sh" 2>/dev/null || true
   [ -f "$PROPCTL" ] && chmod 755 "$PROPCTL" 2>/dev/null || true
   [ -f "$PATCHCTL" ] && chmod 755 "$PATCHCTL" 2>/dev/null || true
+  [ -f "$MODDIR/zygisk/arm64-v8a.so" ] && chmod 644 "$MODDIR/zygisk/arm64-v8a.so" 2>/dev/null || true
   chcon_tree u:object_r:system_file:s0 "$MODDIR"
 }
 
@@ -87,6 +91,24 @@ bind_path_global() {
   return "$rc"
 }
 
+bind_path_zygote() {
+  local src="$1"
+  local dst="$2"
+  local pid ns seen rc
+  command -v nsenter >/dev/null 2>&1 || return 1
+  seen=
+  rc=0
+  for pid in $(pidof zygote64 2>/dev/null) $(pidof zygote 2>/dev/null); do
+    [ -d "/proc/$pid/ns" ] || continue
+    ns=$(readlink "/proc/$pid/ns/mnt" 2>/dev/null)
+    case " $seen " in *" $ns "*) continue ;; esac
+    seen="$seen $ns"
+    nsenter -t "$pid" -m -- /system/bin/sh -c "grep -qs ' $dst ' /proc/mounts && /system/bin/umount -l '$dst' || true; /system/bin/mount --bind '$src' '$dst'" >>"$LOG_DIR/module.log" 2>&1 || rc=1
+  done
+  [ -n "$seen" ] || return 1
+  return "$rc"
+}
+
 bind_file() {
   local src="$1"
   local dst="$2"
@@ -113,6 +135,41 @@ bind_dir() {
     return 1
   }
   bind_path_global "$src" "$dst"
+}
+
+should_capture_system_server_original_prop() {
+  case "$1" in
+    qemu.*|vendor.qemu.*|vendor.ranchu.*|vendor.goldfish.*|vendor.gfx.*|vendor.hw.*|vendor.opengles.*|\
+    ro.kernel.qemu|ro.boot.qemu.*|\
+    ro.hardware|ro.hardware.*|ro.boot.hardware|ro.boot.hardware.*|ro.opengles.version|ro.boot.opengles.version|\
+    debug.sf.*|debug.hwui.*|ro.surface_flinger.*|\
+    wifi.*|wlan.*|vendor.net.*|persist.vendor.debug.wifi.*)
+      return 0
+      ;;
+    *)
+      return 1
+      ;;
+  esac
+}
+
+capture_system_server_original_props() {
+  local tmp="$SYSTEM_SERVER_ORIGINAL_PROPS_FILE.tmp" key value
+  mkdir -p "$WORK_DIR"
+  : >"$tmp" || return 0
+  getprop 2>/dev/null |
+    sed -n 's/^\[\([^]]*\)\]: \[\(.*\)\]$/\1=\2/p' |
+    while IFS='=' read -r key value; do
+      [ -n "$key" ] || continue
+      should_capture_system_server_original_prop "$key" || continue
+      printf '%s=%s\n' "$key" "$value"
+    done |
+    sort -u >"$tmp"
+  chown root:root "$tmp" 2>/dev/null || true
+  chmod 644 "$tmp" 2>/dev/null || true
+  chcon u:object_r:system_file:s0 "$tmp" 2>/dev/null || true
+  mv "$tmp" "$SYSTEM_SERVER_ORIGINAL_PROPS_FILE"
+  chcon u:object_r:system_file:s0 "$SYSTEM_SERVER_ORIGINAL_PROPS_FILE" 2>/dev/null || true
+  log "captured system_server original props: $(wc -l <"$SYSTEM_SERVER_ORIGINAL_PROPS_FILE" 2>/dev/null)"
 }
 
 setup_bootconfig() {
@@ -144,6 +201,10 @@ EOF
 }
 
 setup_keymint() {
+  [ "$ENABLE_KEYMINT_PATCH" = "1" ] || {
+    log "KeyMint patch disabled"
+    return 0
+  }
   [ -x "$PATCHCTL" ] || {
     log "missing patchctl, skipping KeyMint patch"
     return 0
@@ -413,6 +474,41 @@ ro.product.brand=google
 ro.product.name=cheetah
 ro.product.device=cheetah
 ro.product.board=cheetah
+ro.product.odm.brand=google
+ro.product.odm.device=cheetah
+ro.product.odm.manufacturer=Google
+ro.product.odm.model=Pixel 7 Pro
+ro.product.odm.name=cheetah
+ro.product.product.brand=google
+ro.product.product.device=cheetah
+ro.product.product.manufacturer=Google
+ro.product.product.model=Pixel 7 Pro
+ro.product.product.name=cheetah
+ro.product.system.brand=google
+ro.product.system.device=cheetah
+ro.product.system.manufacturer=Google
+ro.product.system.model=Pixel 7 Pro
+ro.product.system.name=cheetah
+ro.product.system_dlkm.brand=google
+ro.product.system_dlkm.device=cheetah
+ro.product.system_dlkm.manufacturer=Google
+ro.product.system_dlkm.model=Pixel 7 Pro
+ro.product.system_dlkm.name=cheetah
+ro.product.system_ext.brand=google
+ro.product.system_ext.device=cheetah
+ro.product.system_ext.manufacturer=Google
+ro.product.system_ext.model=Pixel 7 Pro
+ro.product.system_ext.name=cheetah
+ro.product.vendor.brand=google
+ro.product.vendor.device=cheetah
+ro.product.vendor.manufacturer=Google
+ro.product.vendor.model=Pixel 7 Pro
+ro.product.vendor.name=cheetah
+ro.product.vendor_dlkm.brand=google
+ro.product.vendor_dlkm.device=cheetah
+ro.product.vendor_dlkm.manufacturer=Google
+ro.product.vendor_dlkm.model=Pixel 7 Pro
+ro.product.vendor_dlkm.name=cheetah
 ro.build.product=cheetah
 ro.build.characteristics=nosdcard
 ro.build.flavor=cheetah-user
@@ -427,6 +523,9 @@ ro.vendor.build.fingerprint=google/cheetah/cheetah:14/AP1A.240505.005/11677807:u
 ro.system.build.fingerprint=google/cheetah/cheetah:14/AP1A.240505.005/11677807:user/release-keys
 ro.odm.build.fingerprint=google/cheetah/cheetah:14/AP1A.240505.005/11677807:user/release-keys
 ro.bootimage.build.fingerprint=google/cheetah/cheetah:14/AP1A.240505.005/11677807:user/release-keys
+ro.system_ext.build.fingerprint=google/cheetah/cheetah:14/AP1A.240505.005/11677807:user/release-keys
+ro.system_dlkm.build.fingerprint=google/cheetah/cheetah:14/AP1A.240505.005/11677807:user/release-keys
+ro.vendor_dlkm.build.fingerprint=google/cheetah/cheetah:14/AP1A.240505.005/11677807:user/release-keys
 ro.bootimage.build.id=AP1A.240505.005
 ro.bootimage.build.display.id=AP1A.240505.005.11677807
 ro.bootimage.build.version.incremental=11677807
@@ -450,6 +549,12 @@ ro.boot.vbmeta.device_state=locked
 ro.boot.veritymode=enforcing
 ro.boot.hardware.vulkan=mali
 ro.soc.model=Tensor G2
+ro.boot.serialno=3A021JEHN02756
+ro.serialno=3A021JEHN02756
+persist.adb.wifi.guid=adb-3A021JEHN02756-YEr10d
+dalvik.vm.isa.arm64.variant=cortex-a55
+ro.bionic.cpu_variant=cortex-a55
+ro.bionic.2nd_cpu_variant=cortex-a55
 vendor.camera.fake_camera=both
 EOF
 }
@@ -469,6 +574,26 @@ is_emulator_property_area_name() {
   case "$1" in
     *qemu*|*goldfish*|*ranchu*|*emulation*) return 0 ;;
     *) return 1 ;;
+  esac
+}
+
+is_zygote_property_area_name() {
+  case "$1" in
+    u:object_r:build_prop:s0|\
+    u:object_r:build_*_prop:s0|\
+    u:object_r:fingerprint_prop:s0|\
+    u:object_r:soc_prop:s0|\
+    u:object_r:bootloader_prop:s0|\
+    u:object_r:exported_default_prop:s0|\
+    u:object_r:serialno_prop:s0|\
+    u:object_r:adbd_prop:s0|\
+    u:object_r:cpu_variant_prop:s0|\
+    u:object_r:dalvik_config_prop:s0)
+      return 0
+      ;;
+    *)
+      return 1
+      ;;
   esac
 }
 
@@ -529,6 +654,45 @@ create_profile_with_propctl() {
 
 ensure_profile() {
   create_profile_with_propctl || log "profile setup failed"
+}
+
+apply_zygote_property_profile() {
+  local profile_dir="/dev/__properties__/.profiles/$PROFILE"
+  local src name target failed
+  [ -d "$profile_dir" ] || return 1
+  log "applying zygote property profile"
+  failed=0
+  for src in "$profile_dir"/*; do
+    [ -f "$src" ] || continue
+    name=${src##*/}
+    is_zygote_property_area_name "$name" || continue
+    target="/dev/__properties__/$name"
+    [ -e "$target" ] || continue
+    bind_path_zygote "$src" "$target" || {
+      log "failed to bind zygote property file: $name"
+      failed=1
+    }
+  done
+  return "$failed"
+}
+
+start_zygote_property_profile_worker() {
+  if [ -f "$ZYGOTE_PROFILE_WORKER_PID_FILE" ]; then
+    old=$(cat "$ZYGOTE_PROFILE_WORKER_PID_FILE" 2>/dev/null)
+    [ -n "$old" ] && kill "$old" 2>/dev/null || true
+  fi
+  (
+    i=0
+    while [ "$i" -lt 120 ]; do
+      if pidof zygote64 >/dev/null 2>&1 || pidof zygote >/dev/null 2>&1; then
+        apply_zygote_property_profile || log "zygote property mount failed"
+        break
+      fi
+      sleep 1
+      i=$((i + 1))
+    done
+  ) >>"$LOG_DIR/module.log" 2>&1 &
+  echo $! >"$ZYGOTE_PROFILE_WORKER_PID_FILE"
 }
 
 restore_property_profile_mounts() {
@@ -619,6 +783,7 @@ start_runtime_profile_worker() {
       i=$((i + 1))
     done
     sleep 5
+    setup_bootconfig
     ensure_profile
     apply_global_property_profile || log "global property mount failed"
     restart_runtime_services
@@ -631,8 +796,10 @@ start_runtime_profile_worker() {
 }
 
 restart_runtime_services() {
-  setprop ctl.restart vendor.keymint-default 2>/dev/null || true
-  setprop ctl.restart keystore2 2>/dev/null || true
+  if [ "$ENABLE_KEYMINT_PATCH" = "1" ]; then
+    setprop ctl.restart vendor.keymint-default 2>/dev/null || true
+    setprop ctl.restart keystore2 2>/dev/null || true
+  fi
   setprop ctl.restart vendor.camera-provider-2-7-google 2>/dev/null || true
   setprop ctl.restart cameraserver 2>/dev/null || true
   restart_sensor_services
@@ -670,7 +837,9 @@ main_post_fs_data() {
   load_kpms
   setup_vendor_aliases
   setup_non_so_aliases
-  setup_bootconfig
+  capture_system_server_original_props
+  ensure_profile
+  start_zygote_property_profile_worker
   setup_keymint
   setup_sensor
   setup_camera_prop_key
@@ -682,7 +851,6 @@ main_service() {
   log "service start"
   ensure_module_permissions
   load_kpms
-  setup_bootconfig
   setup_keymint
   setup_sensor
   setup_camera_prop_key
@@ -703,6 +871,11 @@ main_restore_runtime() {
     old=$(cat "$PROFILE_WORKER_PID_FILE" 2>/dev/null)
     [ -n "$old" ] && kill "$old" 2>/dev/null || true
     rm -f "$PROFILE_WORKER_PID_FILE"
+  fi
+  if [ -f "$ZYGOTE_PROFILE_WORKER_PID_FILE" ]; then
+    old=$(cat "$ZYGOTE_PROFILE_WORKER_PID_FILE" 2>/dev/null)
+    [ -n "$old" ] && kill "$old" 2>/dev/null || true
+    rm -f "$ZYGOTE_PROFILE_WORKER_PID_FILE"
   fi
   restore_runtime_mounts
   rm -rf "/dev/__properties__/.profiles/$PROFILE" 2>/dev/null || true

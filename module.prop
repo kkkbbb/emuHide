@@ -4,3 +4,4 @@ version=1.0
 versionCode=1
 author=wwb
 description=Boot-time emulator environment hiding module for SukiSU/KernelSU.
+zygisk=true
